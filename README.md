@@ -22,5 +22,7 @@
 6. `\n`，执行最后一个`current_cmd`，等待进程结束，关闭所有打开文件和管道。
 
 
-
-和Lab-util有区别，`exit`和`wait`带参数了，`wait(0) = wait(NULL) = waitpid(-1, NULL, 0)`
+一些注意点:
+- 和Lab-util有区别，`exit`和`wait`带参数了，`wait(0) = wait(NULL) = waitpid(-1, NULL, 0)`
+- 连环的管道`echo hi | cat | cat`，要准备两个pipe数组，交替使用，避免错乱
+- 调试的时候使用`fprintf(2, format, arg..)`
