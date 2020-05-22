@@ -201,11 +201,14 @@ void handle_cmd_buf()
       break;
     case '|':
       handle_token();
-      if (pipe_turn == 0) {
+      if (pipe_turn == 0)
+      {
         Pipe(pipe0);
         pipe = pipe0;
         pipe_turn = 1;
-      } else {
+      }
+      else
+      {
         Pipe(pipe1);
         pipe = pipe1;
         pipe_turn = 0;
