@@ -85,9 +85,54 @@ int size(char *p) {
 
 ```
       |------------------------------------------ HEAP size ----------------------------------------|
-      |---------------------- meta allocated -------------------------|              |  allocated   |
-base  bd_base                                                         |          bd_end   end       |
+      |---------------------- meta allocated -------------------------|              |-- allocated--|
+base  bd_base                                                         p          bd_end   end       |
 +-----+--------------+--------------------------+---------------+-----+--------------+-----+--------+
-| pad | L0 | L1 | .. | L0.alloc | L1.alloc | .. | L0.split | .. | pad | ..true mem.. | pad | unav   |
-+-----+--------------+--------------------------+---------------+-----+--------------+--------------+
+| pad | L0 | L1 | .. | L0.alloc | L1.alloc | .. | L0.split | .. | pad | ..true mem.. | pad | unavail|
++-----+--------------+--------------------------+---------------+-----+--------------+-----+--------+
 ```
+
+从图中可以看到，元数据是直接放在受管理的内存中的，所以需要把元数据段标记为allocated，另外为了把管理的内存规整为2次幂大小，也要把尾部的非受管理区域标记为allocated。这里的标记不能沿用`malloc`的逻辑，需要手段标记alloc、split，以及填充空闲列表，对应于`bd_init`中的这三句话
+
+```cpp
+// 标记元数据
+// done allocating; mark the memory range [base, p) as allocated, so
+// that buddy will not hand out that memory.
+int meta = bd_mark_data_structures(p);
+
+// 标记尾部区域
+// mark the unavailable memory range [end, HEAP_SIZE) as allocated,
+// so that buddy will not hand out that memory.
+int unavailable = bd_mark_unavailable(end, p);
+
+// 填充空闲列表
+// initialize free lists for each size k
+void *bd_end = bd_base+BLK_SIZE(MAXSIZE)-unavailable;
+int free = bd_initfree(p, bd_end);
+```
+
+在填充空闲列表时，需要明确地知道哪个块为空闲，单单异或信息不足以给出判断。但是可以知道，元信息的分配是从左到右，所以如果出现buddy为空闲，那么一定是右手块(奇数编号)加入空闲列表，同理，尾部分配，出现空闲一定是左手块(偶数编号)加入空闲列表。`bd_initfree()`调用`bd_initfree_pair()`, 所以把这个方向信息传入`bd_init_free_pair()`就可以了
+```cpp
+int
+bd_initfree_pair(int k, int bi, int direction) {
+  int buddy = (bi % 2 == 0) ? bi+1 : bi-1;
+  int free = 0;
+  if(bit_isset(bd_sizes[k].alloc, bi >> 1)) {
+    free = BLK_SIZE(k);
+    // direction = 0, put right-hand block on free list
+    // direction = 1, put left-hand block
+    if(bi % 2 == direction) 
+      lst_push(&bd_sizes[k].free, addr(k, buddy));   // put buddy on free list
+    else
+      lst_push(&bd_sizes[k].free, addr(k, bi));      // put bi on free list
+  }
+  return free;
+}
+```
+
+# 总结
+
+第一次见的操作：
+1. 往受管区域加入元数据，线性铺开。
+2. 利用自洽的基础逻辑(allocated)，从非二次幂规整到要求的二次幂，这种化归感觉很妙。
+3. 学会buddy_alloc了么？还是没有，细节是魔鬼。
