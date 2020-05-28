@@ -106,4 +106,53 @@ static pte_t * walk(pagetable_t pagetable, uint64 va, int alloc)
 }
 ```
 
+### 用户进程内核栈的分配
+
+`proc.c/procinit` 给64个进程结构设置好内核栈的位置，系统启动时执行。
+```cpp
+for(p = proc; p < &proc[NPROC]; p++) {
+    initlock(&p->lock, "proc");
+
+    // 分配一个物理页
+    char *pa = kalloc();
+    if(pa == 0)
+      panic("kalloc");
+    // 倒数第一的page是trampoline，倒数第2是第一个进程的内核栈，倒数第4是第二个进程的内核栈
+    uint64 va = KSTACK((int) (p - proc));
+    kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+    // 设置进程的内核栈地址，这是虚拟地址，需要内核页表配合
+    p->kstack = va;
+}
+```
+
+### 用户进程页表的初始化
+`allocproc` 这个动作发生在新建一个进程时，两个地方，系统启动时，新建`init`进程，以及之后`fork`调用。主要工作设置pid、设置trapframe地址和一级的空页表目录
+```cpp
+static struct proc* allocproc(void)
+{
+  struct proc *p;
+
+  // 找一个未使用的proc结构， p->state = UNUSED，加锁
+
+found:
+  p->pid = allocpid();  // 全局自增 pid
+
+  // 进程和内核用trapframe向交换信息。
+  // 给进程内核页表位置、trap handler地址：
+  // 给内核传递系统调用参数
+  // 存的时物理地址，之后该地址在后一句proc_pagetable中由TRAPFRAME虚拟地址所指
+  if((p->tf = (struct trapframe *)kalloc()) == 0){
+    release(&p->lock);
+    return 0;
+  }
+
+  // An empty user page table.
+  p->pagetable = proc_pagetable(p);
+
+  // 设置context等信息...
+
+  return p;
+}
+```
+
 
