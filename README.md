@@ -126,27 +126,36 @@ for(p = proc; p < &proc[NPROC]; p++) {
 ```
 
 ### 用户进程页表的初始化
-`allocproc` 这个动作发生在新建一个进程时，两个地方，系统启动时，新建`init`进程，以及之后`fork`调用。主要工作设置pid、设置trapframe地址和一级的空页表目录
+
+用户进程表的初始化，当然发生在新建用户进程时，两个地方，系统启动时，新建`init`进程，以及之后`fork`调用。这里就以`fork`为例了。
+
+第一步：`allocproc`  
+`allocproc` 主要工作找一个没有使用的proc结构，设置pid、设置trapframe地址和基础用户态页表
 ```cpp
 static struct proc* allocproc(void)
 {
   struct proc *p;
 
-  // 找一个未使用的proc结构， p->state = UNUSED，加锁
+  // 找一个未使用的proc结构， p->state = UNUSED，**加锁**
 
 found:
   p->pid = allocpid();  // 全局自增 pid
 
-  // 进程和内核用trapframe向交换信息。
-  // 给进程内核页表位置、trap handler地址：
-  // 给内核传递系统调用参数
-  // 存的时物理地址，之后该地址在后一句proc_pagetable中由TRAPFRAME虚拟地址所指
+  // 进程和内核用trapframe交换信息。
+  // 给进程传递内核页表位置、trap handler地址；
+  // 给内核传递系统调用的参数
+  // 此时存的是物理地址，之后该地址在后一句 proc_pagetable 中由TRAPFRAME虚拟地址所指
   if((p->tf = (struct trapframe *)kalloc()) == 0){
     release(&p->lock);
     return 0;
   }
 
-  // An empty user page table.
+  // 初始化用户态页表，映射通用的 trampoline 和 trapframe，程序代码之后再映射
+  // proc_pagetable 的内容如下
+  // pagetable = uvmcreate(); // 调用 kalloc
+  // mappages(pagetable, TRAMPOLINE, PGSIZE, (uint64)trampoline, PTE_R | PTE_X);
+  // mappages(pagetable, TRAPFRAME, PGSIZE, (uint64)(p->tf), PTE_R | PTE_W);
+  // return pagetable;
   p->pagetable = proc_pagetable(p);
 
   // 设置context等信息...
@@ -154,5 +163,50 @@ found:
   return p;
 }
 ```
+
+第二步：`uvmcopy`  
+
+`uvmcopy`的主要工作是拷贝用户进程的页表(mappages)和内存数据(memmove)  
+拷贝过程发生在内核态中，又因为页表以及用户进程所分配堆内存，都出自于内核**直接映射**的预留空间，(end, PHSYSTOP)，使用`kalloc`获得，所以在可以方便地memmove  
+
+参数`sz`，是`old`页表的大小，单位bytes，因为xv6的内存布局是单向生长的，用户栈固定为4K，直接用`sz`就足够描述当前进程所使用的内存空间。
+```cpp
+// 省略了一些错误处理
+int uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
+{
+  pte_t *pte;
+  uint64 pa, i;
+  uint flags;
+  char *mem;
+
+  for(i = 0; i < sz; i += PGSIZE){
+    pte = walk(old, i, 0);
+    pa = PTE2PA(*pte);
+    flags = PTE_FLAGS(*pte);
+    // 拷贝物理内存
+    mem = kalloc();
+    memmove(mem, (char*)pa, PGSIZE);
+    // 设置相同的虚拟地址映射
+    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
+      kfree(mem);
+      goto err;
+    }
+  }
+  return 0;
+```
+
+第三步：设置/复制其他信息
+
+包括但不限于(np: new proc)
+- 复制sz np->sz = p->sz
+- 设置父进程 np->parent = p;
+- 复制trapframe内容*(np->tf) = *(p->tf)，同样利用了内核内存直接映射
+- 设置子进程的fork返回值，np->tf->a0 = 0
+- 复制文件描述符表，全局文件表项的refcnt+1
+- 子进程状态为可运行，np->state = RUNNABLE
+- ……
+
+
+
 
 
