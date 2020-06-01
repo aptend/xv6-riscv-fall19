@@ -15,7 +15,7 @@ extern char etext[];  // kernel.ld sets this to end of kernel code.
 
 extern char trampoline[]; // trampoline.S
 
-void print(pagetable_t);
+void vmprint(pagetable_t);
 
 /*
  * create a direct-map page table for the kernel and
