@@ -206,6 +206,89 @@ int uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
 - 子进程状态为可运行，np->state = RUNNABLE
 - ……
 
+### exec 用户进程页表的替换
+
+exec的分为新建页表、加载文件、建立用户栈、准备main函数调用、替换页表、释放旧页表
+
+新建页表  
+proc的结构已经有了，只用新建页表，所以直接调用`proc_pagetable`，申请一级页表目录，用当前的`p->tf`做`trapframe`的映射，里面的必要数据会在最后统一设置。
+
+加载文件  
+先申请、设置页表，后从文件中读取内容到指定位置。按照elf文件的提示，一轮轮地 `uvmalloc + loadseg`
+```cpp
+// 从空闲内存中分配页，一页页设置 pte，包含U权限。
+// newsz不必对齐，最后的sz会超过newsz。这也是内部碎片的由来
+uint64 uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
+{
+  char *mem;
+  uint64 a;
+
+  // round up，从下一个页位置开始申请，直到超过 newsz 大小
+  oldsz = PGROUNDUP(oldsz);
+  a = oldsz;
+  for(; a < newsz; a += PGSIZE){
+    mem = kalloc();
+    if(mem == 0){
+      // 系统内存不足，无法满足 newsz，恢复到 oldsz 大小
+      uvmdealloc(pagetable, a, oldsz);
+      return 0;
+    }
+    memset(mem, 0, PGSIZE);
+    if(mappages(pagetable, a, PGSIZE, (uint64)mem, PTE_W|PTE_X|PTE_R|PTE_U) != 0){
+      // 页表映射失败，释放刚申请的内存，然后恢复到 oldsz 大小，之前使用的物理内存在 `uvmdealloc`中释放
+      kfree(mem);
+      uvmdealloc(pagetable, a, oldsz);
+      return 0;
+    }
+  }
+  return newsz;
+}
+
+static int loadseg(pagetable_t pagetable, uint64 va, struct inode *ip, uint offset, uint sz) {
+  // ..省略声明和 va 对齐检查
+
+  for(i = 0; i < sz; i += PGSIZE){
+    pa = walkaddr(pagetable, va + i);
+    if(sz - i < PGSIZE)
+      n = sz - i;
+    else
+      n = PGSIZE;
+    // 一批4096 bytes地读取，最后一批可能不足4096
+    if(readi(ip, 0, (uint64)pa, offset+i, n) != n)
+      return -1;
+  }
+  return 0;
+}
+```
+
+![user stack](https://s1.ax1x.com/2020/06/01/tJNvRI.png)
+
+建立用户栈  
+经过loadseg，text和data已经有了，所以会再申请两个页，上一个作为用户栈，下面一个uvmclear后作为guard。
+
+```cpp
+sz = PGROUNDUP(sz);
+if((sz = uvmalloc(pagetable, sz, sz + 2*PGSIZE)) == 0)
+  goto bad;
+uvmclear(pagetable, sz-2*PGSIZE);
+sp = sz;
+stackbase = sp - PGSIZE;
+```
+
+准备main函数调用  
+再参照上图，把argc、argv放到用户栈上，代码就略过了
+
+替换并旧页表  
+```cpp
+oldpagetable = p->pagetable;
+p->pagetable = pagetable;
+p->sz = sz;
+p->tf->epc = elf.entry;  // initial program counter = main
+p->tf->sp = sp; // initial stack pointer
+proc_freepagetable(oldpagetable, oldsz);
+```
+
+
 
 
 
