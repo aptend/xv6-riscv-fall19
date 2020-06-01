@@ -310,3 +310,93 @@ int growproc(int n)
 }
 ```
 
+## Task1: vmprint
+
+加入一个表示层级的整型参数，递归打印就可以
+```cpp
+void _vmprint(pagetable_t pagetable, int lv) {
+  for(int i = 0; i < 512; i++){
+    pte_t pte = pagetable[i];
+    if (pte & PTE_V) {
+      printf("..");
+      for(int j=0; j < lv; j++) {
+        printf(" ..");
+      }
+      uint64 next = PTE2PA(pte);
+      printf("%d: pte %p pa %p\n", i, (char *)pte, (char *)next);
+      if (lv < 2) // 0、1集都是目录，需要递归
+        _vmprint((pagetable_t)next, lv+1);
+    }
+  }
+}
+```
+
+## Task2: lazy sbrk
+
+按照说明，去掉`sys_sbrk`中的`growproc`代码，只保留sz的变化，运行`echo hi` 会显示
+```shell
+$ echo hi
+usertrap(): unexpected scause 0x000000000000000f pid=3
+            sepc=0x0000000000001258 stval=0x0000000000004008
+va=0x0000000000004000 pte=0x0000000000000000
+panic: uvmunmap: not mapped
+
+```
+1. `panic`结尾是无限循环，所以xv6就卡在那里不动了。
+2. `usertrap()`未处理，打印错误信息后`p->killed = 1`，会调用`exit()`，不返回
+3. 子进程退出，父进程会调用`wait`，回收proc资源，会导致调用uvmunmap销毁页表，但是因为只增加了sz，没有实际映射，在卸载时出错。
+
+只增加sz用的是`sbrk`。对用户程序来说，调用`malloc`空间不足时，会触发`sbrk`，一次性申请64K的内存空间。
+
+```cpp
+static Header* morecore(uint nu)
+{
+  char *p;
+
+  if(nu < 4096)
+    nu = 4096;
+  // 一次申请，4 * 16 = 64K
+  p = sbrk(nu * sizeof(Header));
+  
+  // 略
+}
+```
+
+也就解释了，为什么`exec(echo)`中释放旧页表时会出现卸载未映射的页，因为sz我们加了64K，但是实际分配映射并未发生。
+
+## Task2~N: 完成lazy alloc
+
+要让`echo`正常工作，只需要如下改动
+- 修改`uvmunmap`在卸载未映射页时不报错，只打印信息  
+- 修改`usertrap`，捕捉page fault，然后直接申请+映射
+
+这时 `echo hi` 会输出
+```sh
+$ echo hi
+uvmunmap: not mapped: va=0x0000000000005000 pte=0x0000000000000000
+uvmunmap: not mapped: va=0x0000000000006000 pte=0x0000000000000000
+uvmunmap: not mapped: va=0x0000000000007000 pte=0x0000000000000000
+uvmunmap: not mapped: va=0x0000000000008000 pte=0x0000000000000000
+uvmunmap: not mapped: va=0x0000000000009000 pte=0x0000000000000000
+uvmunmap: not mapped: va=0x000000000000a000 pte=0x0000000000000000
+uvmunmap: not mapped: va=0x000000000000b000 pte=0x0000000000000000
+uvmunmap: not mapped: va=0x000000000000c000 pte=0x0000000000000000
+uvmunmap: not mapped: va=0x000000000000d000 pte=0x0000000000000000
+uvmunmap: not mapped: va=0x000000000000e000 pte=0x0000000000000000
+uvmunmap: not mapped: va=0x000000000000f000 pte=0x0000000000000000
+uvmunmap: not mapped: va=0x0000000000010000 pte=0x0000000000000000
+uvmunmap: not mapped: va=0x0000000000011000 pte=0x0000000000000000
+uvmunmap: not mapped: va=0x0000000000012000 pte=0x0000000000000000
+..0: pte 0x0000000021fd4401 pa 0x0000000087f51000
+.. ..0: pte 0x0000000021fd4001 pa 0x0000000087f50000
+.. .. ..0: pte 0x0000000021fd481f pa 0x0000000087f52000
+.. .. ..1: pte 0x0000000021fd3c0f pa 0x0000000087f4f000
+.. .. ..2: pte 0x0000000021fd381f pa 0x0000000087f4e000
+..255: pte 0x0000000021fd5001 pa 0x0000000087f54000
+.. ..511: pte 0x0000000021fd4c01 pa 0x0000000087f53000
+.. .. ..510: pte 0x0000000021fd9007 pa 0x0000000087f64000
+.. .. ..511: pte 0x000000002000200b pa 0x0000000080008000
+hi
+```
+
+可以看出sh实际只用了8K的堆内存，56K的页都未映射
