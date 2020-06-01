@@ -288,8 +288,25 @@ p->tf->sp = sp; // initial stack pointer
 proc_freepagetable(oldpagetable, oldsz);
 ```
 
+### sbrk调用
 
+`sysproc.c/sys_sbrk` 简单调用了 `proc.c/growproc`，再根据n的正负调用 `uvmalloc` 或者 `uvmdemalloc`。
+```cpp
+int growproc(int n)
+{
+  uint sz;
+  struct proc *p = myproc();
 
-
-
+  sz = p->sz;
+  if(n > 0){
+    if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
+      return -1;
+    }
+  } else if(n < 0){
+    sz = uvmdealloc(p->pagetable, sz, sz + n);
+  }
+  p->sz = sz;
+  return 0;
+}
+```
 
