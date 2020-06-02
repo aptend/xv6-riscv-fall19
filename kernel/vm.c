@@ -193,8 +193,7 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
   return 0;
 }
 
-// Remove mappings from a page table. The mappings in
-// the given range must exist. Optionally free the
+// Remove mappings from a page table. Optionally free the
 // physical memory.
 void
 uvmunmap(pagetable_t pagetable, uint64 va, uint64 size, int do_free)
@@ -215,7 +214,6 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 size, int do_free)
     }
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
-    // do_free and mapped
     if(do_free){
       pa = PTE2PA(*pte);
       kfree((void*)pa);
@@ -330,6 +328,9 @@ void
 uvmfree(pagetable_t pagetable, uint64 sz)
 {
   uvmunmap(pagetable, 0, sz, 1);
+  // printf("---------------------after unmap--------------\n");
+  // vmprint(pagetable);
+  // printf("---------------------end-----------------\n");
   freewalk(pagetable);
 }
 
@@ -349,9 +350,11 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
-      panic("uvmcopy: pte should exist");
+      // panic("uvmcopy: pte should exist");
+      continue;
     if((*pte & PTE_V) == 0)
-      panic("uvmcopy: page not present");
+      // panic("uvmcopy: page not present");
+      continue;
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
     if((mem = kalloc()) == 0)

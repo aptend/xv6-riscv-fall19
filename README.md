@@ -82,7 +82,7 @@ int mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
 
 参数：一级目录地址，规整化的虚拟地址，是否是新增映射条目
 
-如果不是新增映射条目，遇到invalid的标志位就要报错，否则就新开辟内存，也就是新建目录，来存放pte
+如果不是新增映射条目，遇到invalid的标志位就要报错，否则就新开辟内存，也就是新建目录，来存放pte。**目录的pte的权限只有PTE_V，可以用来区分是目录pte还是叶子pte，后面的页表操作也就根据这个来决定递归或者抛出错误**
 
 ```cpp
 static pte_t * walk(pagetable_t pagetable, uint64 va, int alloc)
@@ -407,3 +407,11 @@ hi
 ### 处理负数参数
 
 负数表示是释放内存，直接在`sys_sbrk`中调用`uvmdemalloc`，不需要lazy
+
+### 处理访问超过sbrk分配量
+
+即 `虚拟地址 >= p->s` 时中止该进程
+
+### 正确处理fork
+
+`fork`过程会按照`p->sz`复制父进程的的页表(`uvmcopy`)，但是其中有没有映射的项，因此需要跳过。选择`continue`还是`break`? 当然`continue`，因为进程如何使用申请的内存是不知道的，可能隔页访问虚拟地址。

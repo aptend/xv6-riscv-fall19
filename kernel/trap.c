@@ -69,6 +69,12 @@ usertrap(void)
     // ok
   } else if (r_scause() == 15 || r_scause() == 13) {
     uint64 va = r_stval();
+
+    if (va >= p->sz) {
+      p->killed = 1;
+      goto stop_early;
+    }
+
     uint64 a = PGROUNDDOWN(va);
     char *mem = kalloc();
     if (mem == 0)
