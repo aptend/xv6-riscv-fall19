@@ -383,6 +383,19 @@ uvmclear(pagetable_t pagetable, uint64 va)
   if(pte == 0)
     panic("uvmclear");
   *pte &= ~PTE_U;
+  *pte |= PTE_GUARD;
+}
+
+int
+uvmcheck_guard(pagetable_t pagetable, uint64 va) {
+  pte_t *pte;
+
+  pte = walk(pagetable, va, 0);
+  if (pte == 0)
+    return 0;
+  if (*pte & PTE_GUARD)
+    return 1;
+  return 0;
 }
 
 // Copy from kernel to user.

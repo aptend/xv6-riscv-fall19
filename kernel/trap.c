@@ -75,6 +75,11 @@ usertrap(void)
       goto stop_early;
     }
 
+    if (uvmcheck_guard(p->pagetable, va)) {
+      p->killed = 1;
+      goto stop_early;
+    }
+
     uint64 a = PGROUNDDOWN(va);
     char *mem = kalloc();
     if (mem == 0)

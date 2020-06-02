@@ -415,3 +415,35 @@ hi
 ### 正确处理fork
 
 `fork`过程会按照`p->sz`复制父进程的的页表(`uvmcopy`)，但是其中有没有映射的项，因此需要跳过。选择`continue`还是`break`? 当然`continue`，因为进程如何使用申请的内存是不知道的，可能隔页访问虚拟地址。
+
+### 处理栈溢出
+
+在`exec.c`中，标记用户栈下的guard页时，使用了`uvmclear`函数，这也是该函数唯一的调用场景，作用是消除指定虚拟地址页的pte的`PTE_U`标记。又因为64bit的pte还有剩余空间，因此可以把其中一个用来作为专门的guard标记。比如就使用第8bit位
+![tNcq5n.png](https://s1.ax1x.com/2020/06/02/tNcq5n.png)
+
+修改`uvmclear` 并增加一个 `uvmcheck_guard`就可以完成检测
+```cpp
+void
+uvmclear(pagetable_t pagetable, uint64 va)
+{
+  pte_t *pte;
+  
+  pte = walk(pagetable, va, 0);
+  if(pte == 0)
+    panic("uvmclear");
+  *pte &= ~PTE_U;
+  *pte |= PTE_GUARD;
+}
+
+int
+uvmcheck_guard(pagetable_t pagetable, uint64 va) {
+  pte_t *pte;
+
+  pte = walk(pagetable, va, 0);
+  if (pte == 0)
+    return 0;
+  if (*pte & PTE_GUARD)
+    return 1;
+  return 0;
+}
+```
