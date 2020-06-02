@@ -207,18 +207,22 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 size, int do_free)
   last = PGROUNDDOWN(va + size - 1);
   for(;;){
     if((pte = walk(pagetable, a, 0)) == 0)
-      panic("uvmunmap: walk");
+      // panic("uvmunmap: walk");
+      goto next_page;
     if((*pte & PTE_V) == 0){
-      printf("uvmunmap: not mapped: va=%p pte=%p\n", a, *pte);
+      // printf("uvmunmap: not mapped: va=%p pte=%p\n", a, *pte);
+      goto next_page;
     }
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
     // do_free and mapped
-    if(do_free && (*pte & PTE_V) > 0){
+    if(do_free){
       pa = PTE2PA(*pte);
       kfree((void*)pa);
     }
     *pte = 0;
+
+next_page:
     if(a == last)
       break;
     a += PGSIZE;
