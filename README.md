@@ -364,7 +364,9 @@ static Header* morecore(uint nu)
 
 也就解释了，为什么`exec(echo)`中释放旧页表时会出现卸载未映射的页，因为sz我们加了64K，但是实际分配映射并未发生。
 
-## Task2~N: 完成lazy alloc
+## Task2~N: 完善lazy alloc
+
+### `echo hi` 不报错
 
 要让`echo`正常工作，只需要如下改动
 - 修改`uvmunmap`在卸载未映射页时不报错，只打印信息  
@@ -400,3 +402,8 @@ hi
 ```
 
 可以看出sh实际只用了8K的堆内存，56K的页都未映射
+
+
+### 处理负数参数
+
+负数表示是释放内存，直接在`sys_sbrk`中调用`uvmdemalloc`，不需要lazy
