@@ -447,3 +447,9 @@ uvmcheck_guard(pagetable_t pagetable, uint64 va) {
   return 0;
 }
 ```
+
+### 处理系统调用read/write/pipe的缺页
+
+`usertrap()`只会处理用户态代码产生的缺页。在系统调用`write`等，发生在内核态，
+会用页表查数据的物理位置，在用户态和内核态中来回复制。所以要在正式IO之前，
+先模拟`usertrap()`中的行为，把读写字节n所覆盖的页都给先尝试映射上。
