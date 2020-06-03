@@ -5,6 +5,8 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -20,8 +22,7 @@ void _vmprint(pagetable_t pagetable, int lv) {
   for(int i = 0; i < 512; i++){
     pte_t pte = pagetable[i];
     if (pte & PTE_V) {
-      printf("..");
-      for(int j=0; j < lv; j++) {
+      for(int j=0; j <= lv; j++) {
         printf(" ..");
       }
       uint64 next = PTE2PA(pte);
@@ -33,6 +34,7 @@ void _vmprint(pagetable_t pagetable, int lv) {
 }
 
 void vmprint(pagetable_t pagetable) {
+  printf("page table %p\n", (char *)pagetable);
   _vmprint(pagetable, 0);
 }
 
@@ -117,21 +119,59 @@ walk(pagetable_t pagetable, uint64 va, int alloc)
 // Look up a virtual address, return the physical address,
 // or 0 if not mapped.
 // Can only be used to look up user pages.
+// uint64
+// walkaddr(pagetable_t pagetable, uint64 va)
+// {
+//   pte_t *pte;
+//   uint64 pa;
+
+//   if(va >= MAXVA)
+//     return 0;
+
+//   pte = walk(pagetable, va, 0);
+//   if(pte == 0)
+//     return 0;
+//   if((*pte & PTE_V) == 0)
+//     return 0;
+//   if((*pte & PTE_U) == 0)
+//     return 0;
+//   pa = PTE2PA(*pte);
+//   return pa;
+// }
+
 uint64
-walkaddr(pagetable_t pagetable, uint64 va)
-{
+walkaddr(pagetable_t pagetable, uint64 va) {
   pte_t *pte;
   uint64 pa;
 
-  if(va >= MAXVA)
+  if (va >= MAXVA)
     return 0;
 
   pte = walk(pagetable, va, 0);
-  if(pte == 0)
-    return 0;
-  if((*pte & PTE_V) == 0)
-    return 0;
-  if((*pte & PTE_U) == 0)
+  if (pte == 0 || ((*pte & PTE_V) == 0))
+  {
+    if (va >= myproc()->sz)
+      return 0;
+
+    if (uvmcheck_guard(pagetable, va))
+      return 0;
+
+    uint64 a = PGROUNDDOWN(va);
+    char *mem = kalloc();
+    if (mem == 0)
+    {
+      return 0;
+    }
+    memset(mem, 0, PGSIZE);
+    if (mappages(pagetable, a, PGSIZE, (uint64)mem, PTE_W | PTE_X | PTE_R | PTE_U) != 0)
+    {
+      kfree(mem);
+      return 0;
+    }
+    pte = walk(pagetable, va, 0);
+  }
+
+  if ((*pte & PTE_U) == 0)
     return 0;
   pa = PTE2PA(*pte);
   return pa;
