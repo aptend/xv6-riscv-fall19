@@ -145,7 +145,7 @@ consoleintr(int c)
   acquire(&cons.lock);
 
   switch(c){
-  case C('P'):  // Print process list.
+  case C('L'):  // Print process list.
     procdump();
     break;
   case C('U'):  // Kill line.

@@ -95,6 +95,11 @@ walk(pagetable_t pagetable, uint64 va, int alloc)
   return &pagetable[PX(0, va)];
 }
 
+pte_t *
+walkpte(pagetable_t pagetable, uint64 va) {
+  return walk(pagetable, va, 0);
+}
+
 // Look up a virtual address, return the physical address,
 // or 0 if not mapped.
 // Can only be used to look up user pages.
@@ -183,7 +188,7 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 size, int do_free)
   uint64 a, last;
   pte_t *pte;
   uint64 pa;
-
+  
   a = PGROUNDDOWN(va);
   last = PGROUNDDOWN(va + size - 1);
   for(;;){
@@ -312,17 +317,15 @@ uvmfree(pagetable_t pagetable, uint64 sz)
 
 // Given a parent process's page table, copy
 // its memory into a child's page table.
-// Copies both the page table and the
+// Copies the page table, and share the
 // physical memory.
 // returns 0 on success, -1 on failure.
-// frees any allocated pages on failure.
 int
 uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
 {
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
@@ -331,11 +334,13 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
+    if (flags & PTE_COW || flags & PTE_W) {
+      *pte &= ~PTE_W;
+      flags &= ~PTE_W;
+      *pte |= PTE_COW;
+      flags |= PTE_COW;
+    }
+    if(mappages(new, i, PGSIZE, pa, flags) != 0){
       goto err;
     }
   }
