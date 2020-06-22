@@ -77,29 +77,27 @@ usertrap(void)
       goto stop_early;
     }
 
-    if ((*pte & PTE_COW) && (*pte & PTE_V) && (*pte & PTE_U) == 0) {
-      printf("usertrap@15: bad flag\n");
-      p->killed = 1;
-      goto stop_early;
-    }
+    if ((*pte & PTE_COW) && (*pte & PTE_V) && (*pte & PTE_U)) {
+      char *mem = kalloc();
+      if (mem == 0)
+      {
+        p->killed = 1;
+        goto stop_early;
+      }
+      uint64 pa = PTE2PA(*pte);
+      memmove(mem, (char *)pa, PGSIZE);
 
-    printf("start map a new page\n"); 
-    char *mem = kalloc();
-    if (mem == 0) {
-      p->killed = 1;
-      goto stop_early;
-    }
-    uint64 pa = PTE2PA(*pte);
-    memmove(mem, (char *)pa, PGSIZE);
-
-    uint flags = PTE_FLAGS(*pte);
-    flags &= ~PTE_COW;
-    flags |= PTE_W;
-    uvmunmap(p->pagetable, a, PGSIZE, 0);
-    if (mappages(p->pagetable, a, (uint64)mem, PGSIZE, flags) != 0) {
-      kfree(mem);
-      p->killed = 1;
-      goto stop_early;
+      uint flags = PTE_FLAGS(*pte);
+      flags &= ~PTE_COW;
+      flags |= PTE_W;
+      // 利用do_free=1 自动kdrop一次对pa的引用
+      uvmunmap(p->pagetable, a, PGSIZE, 1);
+      if (mappages(p->pagetable, a, PGSIZE, (uint64)mem, flags) != 0)
+      {
+        kfree(mem);
+        p->killed = 1;
+        goto stop_early;
+      }
     }
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);

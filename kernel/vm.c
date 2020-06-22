@@ -202,7 +202,7 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 size, int do_free)
       panic("uvmunmap: not a leaf");
     if(do_free){
       pa = PTE2PA(*pte);
-      kfree((void*)pa);
+      kdrop((void*)pa);
     }
     *pte = 0;
     if(a == last)
@@ -325,7 +325,6 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
 {
   pte_t *pte;
   uint64 pa, i;
-  uint flags;
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
@@ -333,16 +332,11 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
     if((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
-    flags = PTE_FLAGS(*pte);
-    if (flags & PTE_COW || flags & PTE_W) {
-      *pte &= ~PTE_W;
-      flags &= ~PTE_W;
-      *pte |= PTE_COW;
-      flags |= PTE_COW;
-    }
-    if(mappages(new, i, PGSIZE, pa, flags) != 0){
+    *pte &= ~PTE_W;
+    *pte |= PTE_COW;
+    kborrow((void *)pa);
+    if (mappages(new, i, PGSIZE, pa, PTE_FLAGS(*pte)) != 0)
       goto err;
-    }
   }
   return 0;
 
