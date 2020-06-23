@@ -13,3 +13,6 @@ class [Operating System Engineering(MIT 6.828)](https://pdos.csail.mit.edu/6.828
     利用pte的保留位标记了guard页，所以vmprint的测试没通过，但是问题不大，这个方案我觉得也还行。
     另一种就在exec时给proc更新一个ustack字段
 5. [Lab cow](https://github.com/aptend/xv6-riscv-fall19/tree/cow)  
+    父进程的pte和子进程的pte都要改标记COW，用引用计数回收共享页。  
+    记录了一个实现copyout前的bug的过程，比较隐蔽  
+    过程：kalloc.c中的引用计数 | uvmcopy uvmunmap修改 | usertrap() | 迁移到copyout
