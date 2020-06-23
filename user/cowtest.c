@@ -130,14 +130,14 @@ filetest()
   printf("file: ");
   
   buf[0] = 99;
-  printf("buf addr: 0x%p\n", buf);
+  // printf("buf addr: 0x%p\n", buf);
 
   for(int i = 0; i < 2; i++){
-    printf("loop %d\n", i);
     if(pipe(fds) != 0){
       printf("pipe() failed\n");
       exit(-1);
     }
+    // printf("loop %d: fds[%d, %d]\n", i, fds[0], fds[1]);
     int pid = fork();
     if(pid < 0){
       printf("fork failed\n");
@@ -167,11 +167,9 @@ filetest()
   for(int i = 0; i < 4; i++) {
     wait(&xstatus);
     if(xstatus != 0) {
-      printf("stop early\n");
       exit(1);
     }
   }
-  printf("buf[0]: %d\n", buf[0]);
 
   if(buf[0] != 99){
     printf("error: child overwrote parent\n");
@@ -184,14 +182,14 @@ filetest()
 int
 main(int argc, char *argv[])
 {
-  // simpletest();
+  simpletest();
 
-  // // check that the first simpletest() freed the physical memory.
-  // simpletest();
+  // check that the first simpletest() freed the physical memory.
+  simpletest();
 
-  // threetest();
-  // threetest();
-  // threetest();
+  threetest();
+  threetest();
+  threetest();
 
   filetest();
 

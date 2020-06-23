@@ -364,13 +364,38 @@ uvmclear(pagetable_t pagetable, uint64 va)
 int
 copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 {
+  if (dstva >= MAXVA)
+    return -1;
   uint64 n, va0, pa0;
-
+  uint flags;
+  pte_t *pte;
+  char *mem;
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
-    pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0)
+    pte = walkpte(pagetable, va0);
+    if ((*pte & PTE_V) == 0)
       return -1;
+    if ((*pte & PTE_U) == 0)
+      return -1;
+
+    pa0 = PTE2PA(*pte);
+    if ((*pte & PTE_COW)) {
+      mem = kalloc();
+      if (mem == 0)
+        return -1;
+      flags = PTE_FLAGS(*pte);
+      flags &= ~PTE_COW;
+      flags |= PTE_W;
+      memmove(mem, (char *)pa0, PGSIZE);
+      uvmunmap(pagetable, va0, PGSIZE, 1);
+      if (mappages(pagetable, va0, PGSIZE, (uint64)mem, flags) != 0)
+      {
+        kfree(mem);
+        return -1;
+      }
+      pa0 = (uint64)mem;
+    }
+
     n = PGSIZE - (dstva - va0);
     if(n > len)
       n = len;

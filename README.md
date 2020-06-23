@@ -168,3 +168,76 @@ else if (r_scause() == 15) {
 > mappages(pagetable, va, size, pa, flags) 被写成  
 > mappages(pagetable, va, pa, size, flags)
 > 可气死我了！
+
+
+## Pipe/Read
+
+上面的改造完成后，直接运行cowtest，通过`simple`和`three`测试，但是`file`无法通过。
+
+经过调试，发现是`sys_read`返回-1，来自`argfd`返回-1，来自`p->ofile[5]`为0，也就是不能定位到打开的文件。
+
+原因是主进程`cowtest`循环第一次时，打开pipe，占用3，4文件描述符，写入fds
+```sh
+cowtest assign a fd @ 3
+cowtest assign a fd @ 4
+pipe: 3: 0x0x0000000080024ef8
+pipe: 4: 0x0x0000000080024f20
+loop 0: fds[3, 4]
+```
+然后调用fork，子进程sleep(1)。子进程睡眠时，主进程循环第二次，打开pipe，占用5，6描述符，写入fds
+
+```sh
+cowtest assign a fd @ 5
+cowtest assign a fd @ 6
+pipe: 5: 0x0x0000000080024f48
+pipe: 6: 0x0x0000000080024f70
+loop 1: fds[5, 6]
+```
+
+因为没有为`copyout`复制页，`sys_pipe`调用`copyout`会直接修改fds，造成子进程和父进程共用fds，当子进程醒来，就会尝试读fds[0]，此时为5，当然自己的`p->ofile`中并没有5号文件，因此出错。
+
+所以接下来就改`copyout`，发现COW页就复制。
+
+在`Lab lazy`中是把缺页的处理放到了`walkaddr`，这里不能因为`copyin`不用处理COW，但是它也用`walkaddr`
+
+```cpp
+int
+copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
+{
+  if (dstva >= MAXVA)
+    return -1;
+  uint64 n, va0, pa0;
+  uint flags;
+  pte_t *pte;
+  char *mem;
+  while(len > 0){
+    va0 = PGROUNDDOWN(dstva);
+    pte = walkpte(pagetable, va0);
+    if ((*pte & PTE_V) == 0)
+      return -1;
+    if ((*pte & PTE_U) == 0)
+      return -1;
+
+    pa0 = PTE2PA(*pte);
+    if ((*pte & PTE_COW)) {
+      // 和 usertrap 中的一样
+      mem = kalloc();
+      if (mem == 0)
+        return -1;
+      flags = PTE_FLAGS(*pte);
+      flags &= ~PTE_COW;
+      flags |= PTE_W;
+      memmove(mem, (char *)pa0, PGSIZE);
+      uvmunmap(pagetable, va0, PGSIZE, 1);
+      if (mappages(pagetable, va0, PGSIZE, (uint64)mem, flags) != 0)
+      {
+        kfree(mem);
+        return -1;
+      }
+      pa0 = (uint64)mem;
+    }
+    /* 不变 */
+  }
+  return 0;
+}
+```

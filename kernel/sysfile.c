@@ -480,6 +480,8 @@ sys_pipe(void)
     fileclose(wf);
     return -1;
   }
+  // printf("pipe: %d: 0x%p\n", fd0, p->ofile[fd0]);
+  // printf("pipe: %d: 0x%p\n", fd1, p->ofile[fd1]);
   return 0;
 }
 
