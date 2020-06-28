@@ -136,3 +136,5 @@ t->context.ra = (uint64)func;
 t->context.sp = (uint64)(&t->stack) + STACK_SIZE;
 ```
 
+## Alarm
+把入口实现放在`sysproc.c/sys_sigalarm`和`sysproc.c/sys_sigreturn`
