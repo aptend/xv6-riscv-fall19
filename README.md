@@ -16,3 +16,6 @@ class [Operating System Engineering(MIT 6.828)](https://pdos.csail.mit.edu/6.828
     父进程的pte和子进程的pte都要改标记COW，用引用计数回收共享页。  
     记录了一个实现copyout前的bug的过程，比较隐蔽  
     过程：kalloc.c中的引用计数 | uvmcopy uvmunmap修改 | usertrap() | 迁移到copyout
+6. [Lab syscall](https://github.com/aptend/xv6-riscv-fall19/tree/syscall)
+    终于明白切换是怎么回事了。  
+    看懂了内核的进程调度，这期的lab还比较简单
