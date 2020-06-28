@@ -1,11 +1,11 @@
 
 ## Warmup
 
-先做cs61c还是正确的
+先做cs61c还是正确的，回答起来就很简单
 
 ## Thread switch
 
-
+先看xv6的实现，再做题。
 
 ### 内核切换
 
@@ -126,7 +126,7 @@ void scheduler(void)
 
 ### 用户线程切换
 
-完全仿照内核的进程切换，基本上没有改动。而且因为属于携程，不用加锁，难度降低。
+完全仿照内核的进程切换，基本上没有改动。而且因为属于协程，不用加锁，难度降低。
 
 注意create时的初始化，栈地址是从大向小增长的，初始化语句长这样。
 
@@ -136,5 +136,45 @@ t->context.ra = (uint64)func;
 t->context.sp = (uint64)(&t->stack) + STACK_SIZE;
 ```
 
+这里相当于已经写了一个简单的协程运行时。
+
 ## Alarm
+
 把入口实现放在`sysproc.c/sys_sigalarm`和`sysproc.c/sys_sigreturn`
+
+给proc增加一些字段
+```cpp
+void (* cb_handler)();          // handler in sigalarm
+int cb_ticks;                   // ticks spent on CPU
+int cb_interval;                // interval to call handler
+int cb_running;                 // handler is running
+struct trapframe cb_snapshot;   // trapframe to restore user code
+```
+
+只在`usertrap`中响应timer的中断，只有这才表明用户代码执行。保存中断现场，然后设置handler的地址，返回用户态
+
+```cpp
+// give up the CPU if this is a timer interrupt.
+if(which_dev == 2) {
+  // alarm enable && inc ticks && handler is not running
+  if (p->cb_interval > 0 && p->cb_ticks++ >= p->cb_interval && !p->cb_running)
+  {
+    p->cb_snapshot = *p->tf; // store trapframe to restore in sigreturn
+    p->cb_running = 1;
+    p->tf->epc = (uint64)p->cb_handler;
+  }
+  yield();
+}
+```
+
+返回的时候恢复现场，`cb_ticks`用减法而不是置0，可以不丢失handler运行过程中产生的执行计划。
+
+```c
+uint64 sys_sigreturn(void) {
+  struct proc *p = myproc();
+  p->cb_ticks -= p->cb_interval;
+  p->cb_running = 0;
+  *p->tf = p->cb_snapshot; // restore all registers
+  return 0;
+}
+```
