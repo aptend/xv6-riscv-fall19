@@ -8,8 +8,8 @@
 #include "spinlock.h"
 #include "riscv.h"
 #include "defs.h"
+#include "proc.h"
 
-void freerange(void *pa_start, void *pa_end);
 
 extern char end[]; // first address after kernel.
                    // defined by kernel.ld.
@@ -18,25 +18,68 @@ struct run {
   struct run *next;
 };
 
-struct {
+struct kmem {
   struct spinlock lock;
   struct run *freelist;
-} kmem;
+};
 
-void
-kinit()
+struct kmem kmems[NCPU];
+
+void freerange(struct kmem *k, void *pa_start, void *pa_end);
+
+// void
+// kinit()
+// {
+//   initlock(&kmem.lock, "kmem");
+//   freerange(end, (void*)PHYSTOP);
+// }
+
+// void
+// freerange(void *pa_start, void *pa_end)
+// {
+//   char *p;
+//   p = (char*)PGROUNDUP((uint64)pa_start);
+//   for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE)
+//     kfree(p);
+// }
+
+void kinit()
 {
-  initlock(&kmem.lock, "kmem");
-  freerange(end, (void*)PHYSTOP);
+  struct kmem *k;
+  char *p;
+  printf("---kinit start---\n");
+
+  p = (char *)PGROUNDUP((uint64)end);
+  uint64 per_seg = PGROUNDDOWN(((uint64)PHYSTOP - (uint64)p) / NCPU);
+  printf("every segment has %d pages\n", per_seg / PGSIZE);
+
+  for (k=kmems; k < kmems + NCPU - 1; k++) {
+    initlock(&k->lock, "kmem");
+    freerange(k, p, p+per_seg);
+    p += per_seg;
+  }
+  // the last kmem takes care of all left pages.
+  initlock(&k->lock, "kmem");
+  printf("the last segment has %d pages\n", ((uint64)PHYSTOP - (uint64)p) / PGSIZE);
+  freerange(k, p, (void *)PHYSTOP);
+
+  printf("---kinit start---\n\n");
 }
 
-void
-freerange(void *pa_start, void *pa_end)
+void freerange(struct kmem *k, void *pa_start, void *pa_end)
 {
-  char *p;
-  p = (char*)PGROUNDUP((uint64)pa_start);
-  for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE)
-    kfree(p);
+  // pa_start has been rounded
+  char *p = (char *)pa_start;
+  struct run *r;
+
+  // no need to acquire any lock because we are running in one CPU (main.c::main)
+  for (p = (char *)pa_start; p + PGSIZE <= (char *)pa_end; p += PGSIZE)
+  {
+    memset(p, 1, PGSIZE);
+    r = (struct run *)p;
+    r->next = k->freelist;
+    k->freelist = r;
+  }
 }
 
 // Free the page of physical memory pointed at by v,
@@ -56,10 +99,13 @@ kfree(void *pa)
 
   r = (struct run*)pa;
 
-  acquire(&kmem.lock);
-  r->next = kmem.freelist;
-  kmem.freelist = r;
-  release(&kmem.lock);
+  push_off();
+  struct kmem *k = &kmems[cpuid()];
+  acquire(&k->lock);
+  r->next = k->freelist;
+  k->freelist = r;
+  release(&k->lock);
+  pop_off();
 }
 
 // Allocate one 4096-byte page of physical memory.
@@ -70,11 +116,14 @@ kalloc(void)
 {
   struct run *r;
 
-  acquire(&kmem.lock);
-  r = kmem.freelist;
+  push_off();
+  struct kmem *k = &kmems[cpuid()];
+  acquire(&k->lock);
+  r = k->freelist;
   if(r)
-    kmem.freelist = r->next;
-  release(&kmem.lock);
+    k->freelist = r->next;
+  release(&k->lock);
+  pop_off();
 
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk

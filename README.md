@@ -181,3 +181,99 @@ init: starting sh
 - `kalloc()`先获取cpuid，在对应的`kmem`上操作，当无法分配时，反向扫描`kmems`列表，把空闲列表折半，添加到当前`kmem`上
 
 - `kfree()`就在对应的`kmem`上操作，没有额外的逻辑
+
+有两点需要考虑：
+  1. 获取`cpuid`时，必须关中断，防止获取结果后切换到其他CPU，导致操作的`kmem`有误。所以可以保守地让`kalloc`和`kfree`中链表的操作都在`pushoff()`和`popoff()`的包裹下执行
+  2. 在尝试窃取其他`kmem`的空闲列表时，涉及到加两个锁，必须考虑到加锁顺序。最初的想法是每个`kmem`只会尝试窃取id比自己高的`kmem`，方便先获取锁之后循环，但是有可能出现2号hart已经分配了所有页，但是0、1号hart的还有空闲空间。所以还是要分两侧加锁？比自己的id更高的加锁探查后，释放掉，先给自己加锁再加高位锁？
+
+第一个阶段，先实现没有窃取的kalloc，每个CPU大约可分配1/8的pages
+
+定义上先把kmem变成有名字的结构体，再定义kmem列表，修改`freerange`签名
+```cpp
+struct kmem {
+  struct spinlock lock;
+  struct run *freelist;
+};
+
+struct kmem kmems[NCPU];
+
+void freerange(struct kmem *k, void *pa_start, void *pa_end);
+```
+
+> ```cpp
+> struct kmem kmems[NCPU];
+> void freerange(struct kmem *k, void *pa_start, void *pa_end);
+> 
+> struct kmem {
+>   struct spinlock lock;
+>   struct run *freelist;
+> };
+> ```
+> 这样会出现incomplete type的警告，因为头文件中并不存在struct kmem，使用在列表中使用/参数中使用时就会出错
+> `kmems`报错`array type has incomplete element type 'struct kmem'`
+> `freerange`报错`'struct kmem' declared inside parameter list`
+
+再实现`kinit`，划分空闲pages
+```cpp
+void kinit()
+{
+  // ... 
+  p = (char *)PGROUNDUP((uint64)end);
+  uint64 per_seg = PGROUNDDOWN(((uint64)PHYSTOP - (uint64)p) / NCPU);
+  for (k=kmems; k < kmems + NCPU - 1; k++) {
+    initlock(&k->lock, "kmem");
+    freerange(k, p, p+per_seg);
+    p += per_seg;
+  }
+  initlock(&k->lock, "kmem");
+  freerange(k, p, (void *)PHYSTOP);
+}
+
+void freerange(struct kmem *k, void *pa_start, void *pa_end)
+{
+  // ...
+  for (p = (char *)pa_start; p + PGSIZE <= (char *)pa_end; p += PGSIZE) {
+    memset(p, 1, PGSIZE);
+    r = (struct run *)p;
+    r->next = k->freelist;
+    k->freelist = r;
+  }
+}
+```
+重点在于，`freerange`中操作形成链表时并没有加锁，因为从启动过程分析，`kinit`是运行在单一CPU上的，不会出现交叉执行
+
+然后就是`kalloc`和`kfree`
+
+```cpp
+void kfree(void *pa)
+{
+  // ...
+  push_off();
+  struct kmem *k = &kmems[cpuid()];
+  acquire(&k->lock);
+  r->next = k->freelist;
+  k->freelist = r;
+  release(&k->lock);
+  pop_off();
+}
+
+void *kalloc(void)
+{
+  // ...
+  push_off();
+  struct kmem *k = &kmems[cpuid()];
+  acquire(&k->lock);
+  r = k->freelist;
+  if(r) { k->freelist = r->next };
+  release(&k->lock);
+  pop_off();
+  // ...
+}
+```
+
+
+当前实现完成后，`usertests`中仅`sbrkmuch`出错，一个CPU上的pages还是不够多
+```
+test sbrkmuch: sbrkmuch: sbrk test failed to grow big address space; enough phys mem?
+FAILED
+```
