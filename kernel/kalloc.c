@@ -115,14 +115,28 @@ void *
 kalloc(void)
 {
   struct run *r;
-
+  struct kmem *k;
   push_off();
-  struct kmem *k = &kmems[cpuid()];
+  k = &kmems[cpuid()];
   acquire(&k->lock);
   r = k->freelist;
   if(r)
     k->freelist = r->next;
   release(&k->lock);
+
+  if(!r) {
+    for (int i = NCPU-1; i >= 0; i--) {
+      k = &kmems[i];
+      acquire(&k->lock);
+      r = k->freelist;
+      if (r)
+        k->freelist = r->next;
+      release(&k->lock);
+      if (r)
+        break;
+    }
+  }
+
   pop_off();
 
   if(r)

@@ -277,3 +277,36 @@ void *kalloc(void)
 test sbrkmuch: sbrkmuch: sbrk test failed to grow big address space; enough phys mem?
 FAILED
 ```
+
+
+来完成第二阶段，之前的想法一直是，出现没有空闲页时，把其他核的空闲页哪一部分到自己这里，然后再分配。但是简单点，直接遍历其他核的空闲列表，成功分配了就退出，也不用考虑死锁，不用把别人的挪到自己这里来。这个方案在`kalloc`中增加几行就可以了。因为释放的时候会把page放在自己的空闲链表上，像当前的三个hart，运行足够长的时间，总会把其他5个的page挪到自己的链表上。
+
+```cpp
+void * kalloc(void) {
+  // ...
+  push_off();
+  k = &kmems[cpuid()];
+  acquire(&k->lock);
+  r = k->freelist;
+  if(r)
+    k->freelist = r->next;
+  release(&k->lock);
+
+  /* new code here */
+  if(!r) {
+    for (int i = NCPU-1; i >= 0; i--) {
+      k = &kmems[i];
+      acquire(&k->lock);
+      r = k->freelist;
+      if (r)
+        k->freelist = r->next;
+      release(&k->lock);
+      if (r)
+        break;
+    }
+  }
+
+  pop_off();
+  // ...
+}
+```
