@@ -26,7 +26,7 @@ void _vmprint(pagetable_t pagetable, int lv) {
         printf(" ..");
       }
       uint64 next = PTE2PA(pte);
-      printf("%d: pte %p pa %p\n", i, (char *)pte, (char *)next);
+      printf("%d: pte %p pa %p\n", i, (char *)(pte&~PTE_GUARD), (char *)next);
       if (lv < 2)
         _vmprint((pagetable_t)next, lv+1);
     }
