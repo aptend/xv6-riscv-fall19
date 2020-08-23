@@ -165,6 +165,28 @@ bad:
   return -1;
 }
 
+// Create the path new as a symlink to the path old.
+uint64
+sys_symlink(void)
+{
+  char name[DIRSIZ], new[MAXPATH], old[MAXPATH];
+  struct inode *dp, *ip;
+
+  if(argstr(0, old, MAXPATH) < 0 || argstr(1, new, MAXPATH) < 0)
+    return -1;
+
+  begin_op(ROOTDEV);
+  if((ip = namei(old)) == 0){
+    end_op(ROOTDEV);
+    return -1;
+  }
+  if((dp = nameiparent(new, name)) == 0) {
+    printf("bad path new\n");
+  }
+  printf("syscall: symlink\n");
+  return 0;
+}
+
 // Is the directory dp empty except for "." and ".." ?
 static int
 isdirempty(struct inode *dp)
