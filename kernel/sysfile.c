@@ -16,6 +16,8 @@
 #include "file.h"
 #include "fcntl.h"
 
+static struct inode* create(char *path, short type, short major, short minor);
+
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
 static int
@@ -169,21 +171,26 @@ bad:
 uint64
 sys_symlink(void)
 {
-  char name[DIRSIZ], new[MAXPATH], old[MAXPATH];
-  struct inode *dp, *ip;
+  char target[MAXPATH], path[MAXPATH];
+  struct inode *ip;
+  // there is no need to include the trailing zero
+  // because target will be written to a bzero-ed block 
+  int len;
 
-  if(argstr(0, old, MAXPATH) < 0 || argstr(1, new, MAXPATH) < 0)
+  if(argstr(0, target, MAXPATH) < 0 || argstr(1, path, MAXPATH) < 0)
     return -1;
+  len = strlen(target);
 
   begin_op(ROOTDEV);
-  if((ip = namei(old)) == 0){
+  if ((ip = create(path, T_SYMLINK, 0, 0)) == 0) {
     end_op(ROOTDEV);
     return -1;
   }
-  if((dp = nameiparent(new, name)) == 0) {
-    printf("bad path new\n");
-  }
-  printf("syscall: symlink\n");
+  
+  if(writei(ip, 0, (uint64)target, 0, len) != len)
+    panic("symlink: writei");
+  iunlockput(ip);
+  end_op(ROOTDEV);  
   return 0;
 }
 
@@ -305,6 +312,31 @@ create(char *path, short type, short major, short minor)
   return ip;
 }
 
+// receive a locked symlink ip, and follow the link chain to the end
+// if the end file does not exist, return null pointer.
+struct inode *
+follow_symbol(struct inode* ip) {
+  char target[MAXPATH];
+  int cycle_cnt = 0;
+  while (1) {
+    if (cycle_cnt++ > 10) {
+      return 0;
+    } 
+    memset(target, 0, MAXPATH);
+    if (readi(ip, 0, (uint64)target, 0, MAXPATH) == 0)
+      panic("follow_symbol: readi\n");
+    iunlockput(ip);
+    // printf("follow target: %s\n", target);
+    if ((ip = namei(target)) == 0)
+      return 0;
+    ilock(ip);
+    if (ip->type != T_SYMLINK)
+      return ip;
+  }
+  
+  panic("follow_symbol: no reachable code\n");
+}
+
 uint64
 sys_open(void)
 {
@@ -333,6 +365,10 @@ sys_open(void)
     ilock(ip);
     if(ip->type == T_DIR && omode != O_RDONLY){
       iunlockput(ip);
+      end_op(ROOTDEV);
+      return -1;
+    }
+    if (ip->type == T_SYMLINK && !(omode & O_NOFOLLOW) && ((ip = follow_symbol(ip)) == 0)) {
       end_op(ROOTDEV);
       return -1;
     }
