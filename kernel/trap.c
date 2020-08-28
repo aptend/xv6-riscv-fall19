@@ -3,8 +3,12 @@
 #include "memlayout.h"
 #include "riscv.h"
 #include "spinlock.h"
+#include "sleeplock.h"
 #include "proc.h"
 #include "defs.h"
+#include "vma.h"
+#include "fs.h"
+#include "file.h"
 
 struct spinlock tickslock;
 uint ticks;
@@ -70,15 +74,63 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
+  } else if (r_scause() == 13) { // load page fault
+    uint64 va = r_stval();
+
+    if (va >= p->sz) {
+      p->killed = 1;
+      goto stop_early;
+    }
+
+    struct vma *v = 0;
+    int i;
+    for(i=0; i < NPVMA; i++) {
+      if((v = p->pvma[i]) && v->start <= va && v->end > va)
+        break;
+    }
+    // vma is alloced follow proc->sz
+    if(i == NPVMA)
+      panic("found no vma");
+      
+
+    uint64 a = PGROUNDDOWN(va);
+    char *mem = kalloc();
+    if (mem == 0) {
+      p->killed = 1;
+      goto stop_early;
+    }
+
+    // According to type of vma, 
+    // there could be many ways to handle this new page.
+    // Default way here, in lab-mmap, is reading from file
+    memset(mem, 0, PGSIZE);
+    int r = 0;
+    struct inode *inode = v->file->ip;
+    ilock(inode);
+    if((r = readi(inode, 0, (uint64)mem, v->file->off, PGSIZE)) > 0)
+      v->file->off += r;
+    iunlock(inode);
+
+    //permissions according to vma
+    int perm =  PTE_R | PTE_U;
+    if(v->flags & PROT_WRITE)
+      perm |= PTE_W;
+    if (mappages(p->pagetable, a, PGSIZE, (uint64)mem, perm) != 0)
+    {
+      kfree(mem);
+      p->killed = 1;
+      goto stop_early;
+    }
   } else {
     printf("usertrap(): unexpected scause %p (%s) pid=%d\n", r_scause(), scause_desc(r_scause()), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
     p->killed = 1;
   }
 
+stop_early:
   if(p->killed)
-    exit(-1);
-
+    exit(-1); 
+  
   // give up the CPU if this is a timer interrupt.
   if(which_dev == 2)
     yield();
