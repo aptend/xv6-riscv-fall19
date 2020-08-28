@@ -8,6 +8,7 @@
 #include "file.h"
 #include "proc.h"
 #include "defs.h"
+#include "vma.h"
 
 struct cpu cpus[NCPU];
 
@@ -689,4 +690,42 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+
+int mmap(uint64 *addr, int len, int prot, int flags, int fd) {
+  struct proc *p;
+  struct vma *v;
+  struct file *f;
+  int i;
+
+  p = myproc();
+
+  if(fd < 0 || fd >= NOFILE || (f = p->ofile[fd]) == 0)
+    return -1;
+  
+  for(i = 0; i < NPVMA; i++)
+    if(p->pvma[i] == 0)
+      break;
+  
+  if(i == NPVMA || (v = vmaalloc()) == 0)
+    return -1;
+  
+  *addr = p->sz;
+  v->start = *addr;
+  v->end = *addr + len;
+  v->prot = prot;
+  v->flags = flags;
+  filedup(f); // prevent the file from reusing after closing
+  v->file = f;
+
+  p->pvma[i] = v;
+  p->sz += len;
+  
+  return 0;
+  
+}
+
+int munmap(uint64 addr, int len) {
+  return -1;
 }
