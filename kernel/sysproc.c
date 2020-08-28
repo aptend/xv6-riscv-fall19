@@ -126,6 +126,5 @@ sys_munmap(void) {
   if(argaddr(0, &addr) < 0 || argint(1, &len) < 0)
     return -1;
   
-  printf("error from sys_munmap\n");
-  return -1;
+  return munmap(addr, len);
 }

@@ -88,9 +88,11 @@ usertrap(void)
       if((v = p->pvma[i]) && v->start <= va && v->end > va)
         break;
     }
-    // vma is alloced follow proc->sz
-    if(i == NPVMA)
-      panic("found no vma");
+
+    if(i == NPVMA) {
+      p->killed = 1;
+      goto stop_early;
+    }
       
 
     uint64 a = PGROUNDDOWN(va);

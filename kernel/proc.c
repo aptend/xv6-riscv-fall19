@@ -692,6 +692,19 @@ procdump(void)
   }
 }
 
+struct vma * find_vma(uint64 addr) {
+  struct vma *v;
+  struct proc *p = myproc();
+  int i;
+  for(i=0; i < NPVMA; i++) {
+    if((v = p->pvma[i]) && v->start <= addr && v->end > addr)
+      break;
+  }
+  if(i == NPVMA)
+    return 0;
+  else
+    return v;
+}
 
 int mmap(uint64 *addr, int len, int prot, int flags, int fd) {
   struct proc *p;
@@ -727,5 +740,7 @@ int mmap(uint64 *addr, int len, int prot, int flags, int fd) {
 }
 
 int munmap(uint64 addr, int len) {
-  return -1;
+  struct vma *v;
+  if((v = find_vma(addr)) == 0)
+    return -1;
 }
