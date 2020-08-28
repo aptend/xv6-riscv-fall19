@@ -8,6 +8,7 @@ struct spinlock;
 struct sleeplock;
 struct stat;
 struct superblock;
+struct vma;
 
 // bio.c
 void            binit(void);
@@ -33,6 +34,12 @@ void            fileinit(void);
 int             fileread(struct file*, uint64, int n);
 int             filestat(struct file*, uint64 addr);
 int             filewrite(struct file*, uint64, int n);
+
+
+// vam.c
+void            vmainit(void);
+struct vma*     vmaalloc(void);
+void            vmafree(struct vma*);
 
 // fs.c
 void            fsinit(int);
