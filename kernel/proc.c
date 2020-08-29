@@ -278,6 +278,10 @@ fork(void)
       np->ofile[i] = filedup(p->ofile[i]);
   np->cwd = idup(p->cwd);
 
+  for(i = 0; i < NPVMA; i++)
+    if(p->pvma[i])
+      np->pvma[i] = vmadup(p->pvma[i]);
+
   safestrcpy(np->name, p->name, sizeof(p->name));
 
   pid = np->pid;
@@ -332,6 +336,13 @@ exit(int status)
       struct file *f = p->ofile[fd];
       fileclose(f);
       p->ofile[fd] = 0;
+    }
+  }
+
+  for(int i = 0; i < NPVMA; i++) {
+    if(p->pvma[i]) {
+      vmafree(p->pvma[i]);
+      p->pvma[i] = 0;
     }
   }
 
@@ -718,7 +729,7 @@ int mmap(uint64 *addr, int len, int prot, int flags, int fd) {
   if(fd < 0 || fd >= NOFILE || (f = p->ofile[fd]) == 0)
     return -1;
 
-  if(!f->writable && (flags & MAP_SHARED))
+  if(!f->writable && (prot & PROT_WRITE) && (flags & MAP_SHARED))
     return -1;
 
   for(i = 0; i < NPVMA; i++)
@@ -780,7 +791,6 @@ int munmap(uint64 addr, int len) {
   struct proc *p = myproc();
   if (addr == v->start && end == v->end) {
     // free the vma
-    fileclose(v->file);
     vmafree(v);
     p->pvma[idx] = 0;
   } else if (end == v->end) {

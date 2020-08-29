@@ -32,10 +32,21 @@ struct vma* vmaalloc(void) {
   return 0;
 }
 
+struct vma* vmadup(struct vma* v) {
+  struct vma *nv;
+  if((nv = vmaalloc()) == 0)
+    return 0;
+  *nv = *v;
+  filedup(nv->file);
+  return nv;
+};
+
+
 
 void vmafree(struct vma* v) {
   acquire(&vtable.lock);
   v->valid = 0;
   release(&vtable.lock);
+  fileclose(v->file);
   return;
 }
