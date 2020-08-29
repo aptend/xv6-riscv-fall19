@@ -82,18 +82,13 @@ usertrap(void)
       goto stop_early;
     }
 
-    struct vma *v = 0;
-    int i;
-    for(i=0; i < NPVMA; i++) {
-      if((v = p->pvma[i]) && v->start <= va && v->end > va)
-        break;
-    }
-
-    if(i == NPVMA) {
+    struct vma *v;
+    int _;
+    if ((v = find_vma(va, &_)) == 0) {
       p->killed = 1;
+      printf("segment fault\n");
       goto stop_early;
     }
-      
 
     uint64 a = PGROUNDDOWN(va);
     char *mem = kalloc();
@@ -109,13 +104,14 @@ usertrap(void)
     int r = 0;
     struct inode *inode = v->file->ip;
     ilock(inode);
+    v->file->off = a - v->ostart;
     if((r = readi(inode, 0, (uint64)mem, v->file->off, PGSIZE)) > 0)
       v->file->off += r;
     iunlock(inode);
 
     //permissions according to vma
     int perm =  PTE_R | PTE_U;
-    if(v->flags & PROT_WRITE)
+    if(v->prot & PROT_WRITE)
       perm |= PTE_W;
     if (mappages(p->pagetable, a, PGSIZE, (uint64)mem, perm) != 0)
     {

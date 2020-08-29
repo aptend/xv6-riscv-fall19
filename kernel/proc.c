@@ -28,7 +28,7 @@ void
 procinit(void)
 {
   struct proc *p;
-  
+
   initlock(&pid_lock, "nextpid");
   for(p = proc; p < &proc[NPROC]; p++) {
       initlock(&p->lock, "proc");
@@ -78,7 +78,7 @@ myproc(void) {
 int
 allocpid() {
   int pid;
-  
+
   acquire(&pid_lock);
   pid = nextpid;
   nextpid = nextpid + 1;
@@ -204,7 +204,7 @@ userinit(void)
 
   p = allocproc();
   initproc = p;
-  
+
   // allocate one user page and copy init's instructions
   // and data into it.
   uvminit(p->pagetable, initcode, sizeof(initcode));
@@ -358,7 +358,7 @@ exit(int status)
   acquire(&p->lock);
   struct proc *original_parent = p->parent;
   release(&p->lock);
-  
+
   // we need the parent's lock in order to wake it up from wait().
   // the parent-then-child rule says we have to lock it first.
   acquire(&original_parent->lock);
@@ -429,7 +429,7 @@ wait(uint64 addr)
       release(&p->lock);
       return -1;
     }
-    
+
     // Wait for a child to exit.
     sleep(p, &p->lock);  //DOC: wait-sleep
   }
@@ -447,7 +447,7 @@ scheduler(void)
 {
   struct proc *p;
   struct cpu *c = mycpu();
-  
+
   c->proc = 0;
   for(;;){
     // Avoid deadlock by giving devices a chance to interrupt.
@@ -553,7 +553,7 @@ void
 sleep(void *chan, struct spinlock *lk)
 {
   struct proc *p = myproc();
-  
+
   // Must acquire p->lock in order to
   // change p->state and then call sched.
   // Once we hold p->lock, we can be
@@ -692,7 +692,7 @@ procdump(void)
   }
 }
 
-struct vma * find_vma(uint64 addr) {
+struct vma * find_vma(uint64 addr, int* idx) {
   struct vma *v;
   struct proc *p = myproc();
   int i;
@@ -700,6 +700,7 @@ struct vma * find_vma(uint64 addr) {
     if((v = p->pvma[i]) && v->start <= addr && v->end > addr)
       break;
   }
+  *idx = i;
   if(i == NPVMA)
     return 0;
   else
@@ -716,31 +717,77 @@ int mmap(uint64 *addr, int len, int prot, int flags, int fd) {
 
   if(fd < 0 || fd >= NOFILE || (f = p->ofile[fd]) == 0)
     return -1;
-  
+
+  if(!f->writable && (flags & MAP_SHARED))
+    return -1;
+
   for(i = 0; i < NPVMA; i++)
     if(p->pvma[i] == 0)
       break;
-  
+
   if(i == NPVMA || (v = vmaalloc()) == 0)
     return -1;
-  
   *addr = p->sz;
+  v->ostart = *addr;
   v->start = *addr;
   v->end = *addr + len;
   v->prot = prot;
   v->flags = flags;
+  f->off = 0; // map address from the start
   filedup(f); // prevent the file from reusing after closing
   v->file = f;
 
   p->pvma[i] = v;
   p->sz += len;
-  
+
   return 0;
-  
+
 }
 
 int munmap(uint64 addr, int len) {
   struct vma *v;
-  if((v = find_vma(addr)) == 0)
+  int idx;
+  uint64 end;
+  if((v = find_vma(addr, &idx)) == 0)
     return -1;
+
+  if(addr + len >= v->end)
+    end = v->end;
+  else
+    end = addr + len;
+  
+  if(v->start < addr && end < v->end)
+    panic("munmap: bad range");
+
+  // write back to the file, it won't extend the file
+  if (v->flags & MAP_SHARED) {
+    struct file *f = v->file;
+
+    ilock(f->ip);
+    if (addr - v->ostart < f->ip->size) {
+      f->off = addr - v->ostart;
+      uint64 iend = end;
+      if (iend > f->ip->size + v->ostart)
+        iend = f->ip->size + v->ostart;
+      iunlock(f->ip);
+      if (filewrite(f, addr, iend - addr) < 0)
+        return -1;
+    } else {
+      iunlock(f->ip);
+    }
+  }
+
+  struct proc *p = myproc();
+  if (addr == v->start && end == v->end) {
+    // free the vma
+    fileclose(v->file);
+    vmafree(v);
+    p->pvma[idx] = 0;
+  } else if (end == v->end) {
+    v->end = addr;
+  } else {
+    v->start = end;
+  }
+  uvmunmap(p->pagetable, addr, end, 1);
+  return 0;
 }
