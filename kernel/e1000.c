@@ -102,7 +102,31 @@ e1000_transmit(struct mbuf *m)
   // the TX descriptor ring so that the e1000 sends it. Stash
   // a pointer so that it can be freed after sending.
   //
-  return -1;
+  acquire(&e1000_lock);
+  uint32 idx = regs[E1000_TDT];
+      // find the tail
+  struct tx_desc *d = &tx_ring[idx];
+  struct mbuf* old_m = tx_mbufs[idx];
+
+  // this tail is not ready for software yet.
+  if ((d->status & E1000_TXD_STAT_DD) == 0) {
+    release(&e1000_lock);
+    return -1;
+  }
+
+  // old_buf has been transmitted, free it
+  if (old_m)
+    mbuffree(old_m);
+  d->addr = (uint64)m->head;
+  d->length = m->len;
+  d->cmd = E1000_TXD_CMD_RS | E1000_TXD_CMD_EOP;
+  d->status = 0;
+  // store buf for later freeing
+  tx_mbufs[idx] = m;
+
+  regs[E1000_TDT] = (idx + 1) % TX_RING_SIZE;
+  release(&e1000_lock);
+  return 0;
 }
 
 static void
