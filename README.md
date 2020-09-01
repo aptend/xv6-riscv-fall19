@@ -24,4 +24,9 @@ class [Operating System Engineering(MIT 6.828)](https://pdos.csail.mit.edu/6.828
     最初理解的`stealing`很麻烦，但是用`proxying`的角度来实现就简单很多了
 
 8. [Lab fs](https://github.com/aptend/xv6-riscv-fall19/tree/fs)  
-    底层实现比较绕，特别是锁的应用，但是lab本身用的知识不多，比较容易
+    底层实现比较绕，特别是锁的应用，但是lab本身用的知识不多，比较容易。  
+    Lab中没有logging的内容有点可惜。
+
+9. [Lab mmap](https://github.com/aptend/xv6-riscv-fall19/tree/mmap)  
+    和需要看的论文关系不大，主要还是参考之前的`Lab lazy`。最主要收获是对Linux虚拟内存
+    分段的作用有实感了。
