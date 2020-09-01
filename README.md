@@ -30,3 +30,8 @@ class [Operating System Engineering(MIT 6.828)](https://pdos.csail.mit.edu/6.828
 9. [Lab mmap](https://github.com/aptend/xv6-riscv-fall19/tree/mmap)  
     和需要看的论文关系不大，主要还是参考之前的`Lab lazy`。最主要收获是对Linux虚拟内存
     分段的作用有实感了。
+
+10. [Lab net](https://github.com/aptend/xv6-riscv-fall19/tree/net)  
+    只做基础Lab的话，论文可以先放。因为要看E1000的手册，有点麻烦，还好圈定了范围，
+    也有代码帮忙定位。主要收获网卡驱动如何交换数据ring desc buffer，协议头部的拆装mbuf，
+    socket的读写实现
