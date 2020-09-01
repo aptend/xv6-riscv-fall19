@@ -98,5 +98,6 @@ sockrecvudp(struct mbuf *m, uint32 raddr, uint16 lport, uint16 rport)
   // any sleeping reader. Free the mbuf if there are no sockets
   // registered to handle it.
   //
+  printf("receive a udp: %s\n", m->head);
   mbuffree(m);
 }

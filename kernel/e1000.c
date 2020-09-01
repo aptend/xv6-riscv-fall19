@@ -154,7 +154,8 @@ e1000_recv(void)
 
     struct mbuf *new_buf = mbufalloc(0);
     if (new_buf == 0)
-      return
+      break;
+    rx_mbufs[idx] = new_buf;
     d->addr = (uint64)new_buf->head;
     d->status = 0;
 
@@ -164,6 +165,7 @@ e1000_recv(void)
 
     net_rx(buf);
   }
+  release(&e1000_lock);
 }
 
 void
