@@ -61,7 +61,7 @@ sockalloc(struct file **f, uint32 raddr, uint16 lport, uint16 rport)
   while (pos) {
     if (pos->raddr == raddr &&
         pos->lport == lport &&
-	pos->rport == rport) {
+	      pos->rport == rport) {
       release(&lock);
       goto bad;
     }
@@ -87,6 +87,90 @@ bad:
 // and writing for network sockets.
 //
 
+int
+sockwrite(struct sock *so, uint64 addr, int n) {
+  // Splitting Udp packet into multiple mbufs is not supported
+  if (n > MAX_UDP_PAYLOAD)
+    return -1;
+  struct mbuf *buf = mbufalloc(MBUF_DEFAULT_HEADROOM);
+  if(copyin(myproc()->pagetable, buf->head, addr, n) == -1) {
+    mbuffree(buf);
+    return -1;
+  }
+  mbufput(buf, n);
+  net_tx_udp(buf, so->raddr, so->lport, so->rport);
+  return n;
+}
+
+int
+sockread(struct sock *so, uint64 addr, int n) {
+  acquire(&so->lock);
+  // block read process
+  while (mbufq_empty(&so->rxq)) {
+    sleep(&so->rxq, &so->lock);
+  }
+
+  struct mbuf *buf;
+  char *read_from;
+  int do_free = 0;
+  if (n >= so->rxq.head->len) {
+    // read all from the first mbuf
+    buf = mbufq_pophead(&so->rxq);
+    n = buf->len;
+    read_from = buf->head;
+    do_free = 1;
+  } else {
+    // read a part of the first mbuf
+    buf = so->rxq.head;
+    read_from = mbufpull(buf, n);
+  }
+
+  // we've done with the rxq linked list
+  release(&so->lock);
+
+  if (copyout(myproc()->pagetable, addr, read_from, n) == -1) {
+    if(do_free)
+      mbuffree(buf);
+    return -1;
+  }
+
+  if(do_free)
+    mbuffree(buf);
+  return n;
+}
+
+void
+sockclose(struct sock *so) {
+  acquire(&lock); // protext sockets linked list
+  struct sock *prev, *pos;
+  prev = pos = sockets;
+  while (pos) {
+    if (pos == so) {
+      if (prev == pos)
+        sockets = 0; // delete head
+      else
+        prev->next = pos->next; // delete target socket
+      release(&lock);
+      // free mbuf before freeing socket
+      // it's impossible to free a mbuf being read,
+      // because the process calling `sockclose` is the only one
+      // who is able to access the current `struct sock`
+      struct mbuf *m = pos->rxq.head;
+      struct mbuf *to_free;
+      while (m) {
+        to_free = m;
+        m = m->next;
+        mbuffree(to_free);
+      }
+      kfree((void *)so);
+    }
+    prev = pos;
+    pos = pos->next;
+  }
+  release(&lock);
+  panic("sockclose: find no target socket");
+}
+
 // called by protocol handler layer to deliver UDP packets
 void
 sockrecvudp(struct mbuf *m, uint32 raddr, uint16 lport, uint16 rport)
@@ -98,6 +182,24 @@ sockrecvudp(struct mbuf *m, uint32 raddr, uint16 lport, uint16 rport)
   // any sleeping reader. Free the mbuf if there are no sockets
   // registered to handle it.
   //
-  printf("receive a udp: %s\n", m->head);
+  // printf("receive a udp: %s\n", m->head);
+  struct sock *pos;
+  acquire(&lock);
+  pos = sockets;
+  while (pos) {
+    if (pos->raddr == raddr &&
+        pos->lport == lport &&
+	      pos->rport == rport) {
+      acquire(&pos->lock);
+      mbufq_pushtail(&pos->rxq, m);
+      release(&pos->lock);
+      release(&lock);
+      wakeup(&pos->rxq);
+      return;
+    }
+    pos = pos->next;
+  }
+  
   mbuffree(m);
+  release(&lock); 
 }

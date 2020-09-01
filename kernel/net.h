@@ -4,6 +4,7 @@
 
 #define MBUF_SIZE              2048
 #define MBUF_DEFAULT_HEADROOM  128
+#define MAX_UDP_PAYLOAD        1900  // 2048 - 128 - 20(safe space) 
 
 struct mbuf {
   struct mbuf  *next; // the next mbuf in the chain
