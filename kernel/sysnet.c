@@ -61,7 +61,7 @@ sockalloc(struct file **f, uint32 raddr, uint16 lport, uint16 rport)
   while (pos) {
     if (pos->raddr == raddr &&
         pos->lport == lport &&
-	      pos->rport == rport) {
+        pos->rport == rport) {
       release(&lock);
       goto bad;
     }
@@ -163,6 +163,7 @@ sockclose(struct sock *so) {
         mbuffree(to_free);
       }
       kfree((void *)so);
+      return;
     }
     prev = pos;
     pos = pos->next;
@@ -189,7 +190,7 @@ sockrecvudp(struct mbuf *m, uint32 raddr, uint16 lport, uint16 rport)
   while (pos) {
     if (pos->raddr == raddr &&
         pos->lport == lport &&
-	      pos->rport == rport) {
+        pos->rport == rport) {
       acquire(&pos->lock);
       mbufq_pushtail(&pos->rxq, m);
       release(&pos->lock);

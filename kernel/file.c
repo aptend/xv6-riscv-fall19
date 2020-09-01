@@ -79,8 +79,8 @@ fileclose(struct file *f)
     begin_op(ff.ip->dev);
     iput(ff.ip);
     end_op(ff.ip->dev);
-  } else if(f->type == FD_SOCK){
-    sockclose(f->sock);
+  } else if(ff.type == FD_SOCK){
+    sockclose(ff.sock);
   }
 }
 
