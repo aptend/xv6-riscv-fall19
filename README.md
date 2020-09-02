@@ -90,11 +90,11 @@ mbufalloc(unsigned int headroom)
  
   if (headroom > MBUF_SIZE)
     return 0;
-  m = kalloc();  // 申请4K内存直接当作mbuf使用，按照内存排布，此时m->buf已经自动填好了地址，应该是是 m+28
+  m = kalloc();  // 申请4K内存直接当作mbuf使用，按照内存排布，此时m->buf已经自动填好了地址，应该是 m+20
   if (m == 0)
     return 0;
   m->next = 0;
-  m->head = (char *)m->buf + headroom; // m+28+128
+  m->head = (char *)m->buf + headroom; // m+20+128
   m->len = 0;
   memset(m->buf, 0, sizeof(m->buf));
   return m;
