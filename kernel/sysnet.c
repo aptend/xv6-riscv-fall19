@@ -147,7 +147,7 @@ sockclose(struct sock *so) {
   while (pos) {
     if (pos == so) {
       if (prev == pos)
-        sockets = 0; // delete head
+        sockets = pos->next; // delete head
       else
         prev->next = pos->next; // delete target socket
       release(&lock);
